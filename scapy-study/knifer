@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+
+from scapy.all import Ether, ARP, conf, sniff, sendp, send, IP
+from sys import argv, exit
+from threading import Thread
+
+from scapy.sendrecv import sniff
+import re
+
+def print_welcome():
+    print("""
+Welcome to... 
+
+   ▄████████    ▄█   ▄█▄ ███▄▄▄▄    ▄█     ▄████████    ▄████████      
+  ███    ███   ███ ▄███▀ ███▀▀▀██▄ ███    ███    ███   ███    ███      
+  ███    █▀    ███▐██▀   ███   ███ ███▌   ███    █▀    ███    █▀       
+  ███         ▄█████▀    ███   ███ ███▌  ▄███▄▄▄      ▄███▄▄▄          
+▀███████████ ▀▀█████▄    ███   ███ ███▌ ▀▀███▀▀▀     ▀▀███▀▀▀          
+         ███   ███▐██▄   ███   ███ ███    ███          ███    █▄       
+   ▄█    ███   ███ ▀███▄ ███   ███ ███    ███          ███    ███      
+ ▄████████▀    ███   ▀█▀  ▀█   █▀  █▀     ███          ██████████      
+                 ▀                                                       
+
+
+Type sknife --help if you're a noob...
+
+""")
+
+def print_help():
+    print("""
+Sknife - (a smart motherfucking wifi sniffing tool)
+
+Developed by **** bitch!
+
+Usage: sknife [options] [IP range] 
+    -s silent: waits for arp traffic to pass through and 
+               record (completely undetectable)
+    -a attemts: specify the amount of ARP attempts on the network
+                (default = 10) NOT IMPLEMENTED YET!
+""")
+
+# Printing red error message
+def error(text):
+    print(f'\033[91mError: {text}')
+
+# Printing yellow warning message
+def warning(text):
+    print(f'\033[93mWarning: {text}')
+
+def print_table():
+    print("\nFound devices:\n")
+    print('{:>10}        |{:>8}'.format('MAC', 'IP'))
+    print('-----------------------------------')
+
+def append_to_table(ans):
+    for el in ans:
+        print('{:<17} | {:<15}'.format(el[1].hwsrc, el[1].psrc))
+
+
+# ==== GLOBAL VARIABLES ====
+conf.verb=0
+close_threads = False
+
+class Devices:
+    def __init__(self, items=[]):
+        self.items = items
+
+    # Appends only if the device does not exists
+    # Updates output device table
+    def append(self, device):
+        for item in self.items:
+            if item[1].psrc == device[1].psrc:
+                return None
+        self.items.append(device)
+        append_to_table(device)
+
+devices = Devices()
+
+# ==== PROGRAM ====
+def validate_input():
+    options = ['-s']
+
+    if len(argv) < 2 or argv[1] == "--help":
+        print_help()
+        exit(1)
+    elif re.search("^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}[/]*\d{0,2}$", argv[-1]):
+        if len(argv) < 3:
+            return
+        for option in argv[1:-1]:
+            if option not in options:
+                error(f'option {option} not supported!')
+                exit(1)
+        return argv[1:-1]
+    else:
+        error('IP adress not in the right format!')
+        exit(1)
+
+# Listens constantly for arp traffic
+test = []
+def sniff_arp():
+    def action(x):
+        if x[1].op==2:
+            devices.append(x)
+    sniff(filter="arp", prn=action, stop_filter=lambda x: close_threads)
+
+# Only send arp (counting on sniffer to catch the results)
+def scan(attempts=15):
+    for _ in range(attempts):
+        sendp(Ether(dst="ff:ff:ff:ff:ff:ff")/ARP(pdst=argv[-1]))
+
+def flow():
+    global close_threads
+    # Input validation
+    flags = validate_input() or ''
+
+    # Print welcome message and scan feedback and table format
+    print_welcome()
+    print('Scanning for ip: ' + argv[-1])
+    print_table()
+
+    # Starting passive arp 'is-at' sniffer
+    t = Thread(target=sniff_arp)
+    t.start()
+
+    # Running scan and return answers
+    if '-s' not in flags:
+        scan()
+
+    # Stop sniffing thread and print results
+    try:
+        t.join()
+    except KeyboardInterrupt:
+        print("Thanks for playing!")
+        close_threads = True
+        send(IP(src="127.0.0.1"))
+        exit(0)
+
+flow()
